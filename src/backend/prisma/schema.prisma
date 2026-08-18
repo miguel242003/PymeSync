@@ -1,0 +1,158 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+
+  users         User[]
+  channels      Channel[]
+  conversations Conversation[]
+  messages      Message[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("tenants")
+}
+
+model User {
+  id                    String    @id @default(uuid())
+  email                 String    @unique
+  password              String
+  name                  String
+
+  tenantId              String
+  tenant                Tenant    @relation(fields: [tenantId], references: [id])
+
+  isVerified            Boolean   @default(false)
+  verificationToken     String?   @unique
+  verificationTokenExpires DateTime?
+
+  resetPasswordToken    String?   @unique
+  resetPasswordExpires  DateTime?
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+enum ChannelPlatform {
+  WHATSAPP
+  MESSENGER
+  INSTAGRAM
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageStatus {
+  RECEIVED
+  FAILED
+}
+
+// Representa la conexión de un tenant con un canal de Meta (WhatsApp, Messenger o Instagram).
+// El external id (phoneNumberId / pageId / igBusinessId) es lo que llega en cada webhook de Meta
+// y es la única forma de resolver a qué tenant pertenece un evento entrante (el webhook no tiene sesión).
+model Channel {
+  id       String          @id @default(uuid())
+  platform ChannelPlatform
+
+  tenantId String
+  tenant   Tenant          @relation(fields: [tenantId], references: [id])
+
+  // Identificador externo de Meta que llega en el payload del webhook:
+  // WHATSAPP -> phone_number_id, MESSENGER -> page_id, INSTAGRAM -> ig_business_id (o page_id).
+  externalId String
+
+  // Token de acceso de larga duración (page access token / WABA access token). Es por tenant,
+  // así que vive en la BD y no en variables de entorno globales.
+  accessToken String @db.Text
+
+  displayName String?
+
+  isActive Boolean @default(true)
+
+  conversations Conversation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([platform, externalId])
+  @@index([tenantId])
+  @@map("channels")
+}
+
+// Agrupa los mensajes de un mismo contacto dentro de un canal (equivalente a un "chat").
+model Conversation {
+  id String @id @default(uuid())
+
+  channelId String
+  channel   Channel @relation(fields: [channelId], references: [id])
+
+  tenantId String
+  tenant   Tenant  @relation(fields: [tenantId], references: [id])
+
+  // wa_id de WhatsApp o PSID de Messenger/Instagram. Único por canal.
+  contactExternalId String
+  contactName       String?
+
+  lastMessageAt DateTime?
+
+  messages Message[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([channelId, contactExternalId])
+  @@index([tenantId])
+  @@map("conversations")
+}
+
+// Mensaje individual, entrante o saliente (saliente queda reservado para un milestone futuro).
+model Message {
+  id String @id @default(uuid())
+
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  direction MessageDirection
+  status    MessageStatus    @default(RECEIVED)
+
+  // Id de mensaje que asigna Meta (wamid / mid). Clave de idempotencia: un webhook puede
+  // reintentarse y esto evita duplicar el mensaje en BD.
+  externalMessageId String @unique
+
+  text String? @db.Text
+
+  // Tipo reportado por Meta: text, image, audio, video, document, sticker, location, etc.
+  contentType String
+
+  // Solo referencia (id de media de Meta); no se descarga el binario en este milestone.
+  mediaId  String?
+  mediaUrl String? @db.Text
+
+  // Payload crudo del webhook, útil para depurar y para no perder datos que aún no modelamos.
+  rawPayload Json
+
+  sentAt DateTime
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([tenantId])
+  @@map("messages")
+}

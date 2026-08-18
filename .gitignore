@@ -1,0 +1,29 @@
+# Dependencias
+node_modules/
+
+# Builds
+dist/
+dist-ssr/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Variables de entorno (secretos) — nunca commitear, solo los .env.example
+.env
+.env.local
+.env.*.local
+
+# Credenciales de despliegue — nunca commitear llaves privadas
+/key/
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.local
+
+# Claude Code — archivos de sesión, no forman parte del proyecto
+.claude/scheduled_tasks.lock
